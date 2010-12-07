@@ -88,7 +88,7 @@ class Twitter_Feed_Widget extends WidgetZero {
 		$cachekey = 'twitter_feed_cache_'.$this->id;
 		
 		foreach ($users as $user){
-			$raw_response = wp_remote_get(self::API_BASE_URL."{$user}.json?count={$number}");
+			$raw_response = wp_remote_get(self::API_BASE_URL."{$user}.json?count={$number}&include_entities=1");
 			
 			if ( is_wp_error($raw_response) ) {
 				$errors[] = "<!-- Failed to update from Twitter! -->\n<!-- {$raw_response->errors['http_request_failed'][0]} -->\n";
@@ -130,7 +130,7 @@ class Twitter_Feed_Widget extends WidgetZero {
 			$tweet_html = array();
 			
 			foreach ( $tweets as $tweet ) {
-				$text = self::linkify_tweet($tweet['text']);
+				$text = self::text_with_entity_links($tweet);
 				$user = $tweet['user']['screen_name'];
 				$image_url = $tweet['user']['profile_image_url'];
 				$user_url = "http://twitter.com/$user";
@@ -209,12 +209,40 @@ class Twitter_Feed_Widget extends WidgetZero {
 		}
 	}
 	
-	private static function linkify_tweet($text)
+	private static function text_with_entity_links($tweet)
 	{
-		$text = preg_replace('|(https?://[^\ ]+)|', '<a href="$1">$1</a>', $text);
-		$text = preg_replace('|@(\w+)|', '<a href="http://twitter.com/$1">@$1</a>', $text);
-		$text = preg_replace('|#(\w+)|', '<a href="http://twitter.com/search?q=%23$1">#$1</a>', $text);
+		$text = $tweet['text'];
+		$entities = array();
+		$entities_sort = array();
+		foreach ($tweet['entities'] as $entity_type => $entity_list){
+			foreach($entity_list as $entity){
+				$entities[] = array(
+					'start'=>$entity['indices'][0],
+					'end'=>$entity['indices'][1],
+					'link'=>self::entity_link($entity_type, $entity)
+				);
+				$entities_sort[] = $entity['indices'][0];
+			}
+		}
+		array_multisort($entities_sort, SORT_DESC, $entities);
+		foreach ($entities as $entity){
+			$text = substr($text, 0, $entity['start']) . $entity['link'] . substr($text, $entity['end']);
+		}
 		return $text;
+	}
+	
+	private static function entity_link($type, $entity)
+	{
+		switch ($type){
+			case 'hashtags':
+				return sprintf('<a class="hashtag" href="http://twitter.com/search?q=%%23%1$s">#%1$s</a>', $entity['text']);
+			case 'user_mentions':
+				return sprintf('<a class="user_mention" href="http://twitter.com/%1$s">@%1$s</a>', $entity['screen_name']);
+			case 'urls':
+				return sprintf('<a href="%1$s">%1$s</a>', $entity['url']);
+			default:
+				throw new Exception("Encountered unexpected entity type {$type} in tweet!");
+		}
 	}
 }
 
