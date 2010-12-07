@@ -40,13 +40,18 @@ class Twitter_Feed_Widget extends WidgetZero {
 				'default' => '3'
 			),
 			array(
+				'name'=>'showuser',
+				'label'=>'Show username on tweet?',
+				'type'=>'toggle'
+			),
+			array(
 				'name'=>'images',
-				'label'=>'Show images',
+				'label'=>'Show user images?',
 				'type'=>'toggle',
 			),
 			array(
 				'name'=>'via',
-				'label'=>'Show tweet source',
+				'label'=>'Show tweet source?',
 				'type'=>'toggle',
 				'note'=>'(web, iPhone app, etc.)'
 			),
@@ -107,8 +112,20 @@ class Twitter_Feed_Widget extends WidgetZero {
 				$tweets = array_merge($tweets, $response);
 			}
 			
-			// sort tweets... not done yet
-			// ...
+			if (count($users) > 1){
+				// sort tweets if we are aggregating multiple users - otherwise they are returned sorted by the API
+				usort($tweets, function($a, $b){
+					$a_date = strtotime($a['created_at']);
+					$b_date = strtotime($b['created_at']);
+					if ($a_date == $b_date){
+						return 0;
+					}
+					// sort in descending order
+					return ($a_date > $b_date) ? -1 : 1;
+				});
+				// truncate list of tweets to the total number requested
+				$tweets = array_slice($tweets, 0, $number);
+			}
 			
 			$tweet_html = array();
 			
@@ -124,6 +141,10 @@ class Twitter_Feed_Widget extends WidgetZero {
 				$image = '';
 				if ( $fields['images'] ) {
 					$image = "<span class='userimg'><a href='$user_url'><img src='$image_url' alt='$user' /></a></span> ";
+				}
+				$handle = '';
+				if ($fields['showuser']) {
+					$handle = sprintf('<span class="username"><a href="%s">@%s</a>:</span> ', $user_url, $user);
 				}
 				
 				$date_and_permalink = '';
@@ -146,7 +167,7 @@ class Twitter_Feed_Widget extends WidgetZero {
 					$via = " <span class='source'>via ".$tweet_via."</span>";
 				}
 				
-				$tweet_html[] = "<li>{$image}<span class='tweet'>{$text}</span>{$date_and_permalink}{$via}</li>";
+				$tweet_html[] = "<li>{$image}{$handle}<span class='tweet'>{$text}</span>{$date_and_permalink}{$via}</li>";
 			}
 			$tweet_output = implode("\n", $tweet_html);
 			if ($viewall) {
