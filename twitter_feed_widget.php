@@ -10,15 +10,13 @@ Version: 0.3.0
         Based on Twitter Hash Tag plugin by Matt Martz (http://sivel.net/)
 */
 
-// still need to implement tweet sorting for multi-user, and making cache option work per-instance instead of shared globally
-
 class Twitter_Feed_Widget extends WidgetZero {
 	const API_BASE_URL = 'http://api.twitter.com/1/statuses/user_timeline/';
 	
 	function Twitter_Feed_Widget() {
 		$widget_ops = array('classname' => 'twitter_feed_widget', 'description' => __( "Real time Twitter user following") );
 		$this->WP_Widget('twitter_feed', __('Twitter Feed'), $widget_ops);
-	
+		
 		// set up fields
 		$this->set_fields(array(
 			array(
@@ -26,13 +24,13 @@ class Twitter_Feed_Widget extends WidgetZero {
 			),
 			array(
 				'name'=>'linktitle',
-				'label'=>'Link title?',
+				'label'=>'Link on title?',
 				'type'=>'toggle',
 				'note'=>'Title will link to the first user name you provide below.'
 			),
 			array(
 				'name'=>'username',
-				'label'=>'User Name',
+				'label'=>'User Name(s)',
 				'note' => 'Separate multiple user names with commas and/or spaces.'
 			),
 			array(
@@ -82,6 +80,7 @@ class Twitter_Feed_Widget extends WidgetZero {
 		$dateformat = $fields['dateformat'];
 		$responses = array();
 		$errors = array();
+		$cachekey = 'twitter_feed_cache_'.$this->id;
 		
 		foreach ($users as $user){
 			$raw_response = wp_remote_get(self::API_BASE_URL."{$user}.json?count={$number}");
@@ -123,7 +122,7 @@ class Twitter_Feed_Widget extends WidgetZero {
 				$tweet_date = strtotime($tweet['created_at']);
 				
 				$image = '';
-				if ( $field['images'] ) {
+				if ( $fields['images'] ) {
 					$image = "<span class='userimg'><a href='$user_url'><img src='$image_url' alt='$user' /></a></span> ";
 				}
 				
@@ -154,9 +153,9 @@ class Twitter_Feed_Widget extends WidgetZero {
 				$tweet_output .= "<li class='view-all'><a href='http://twitter.com/{$users[0]}'>" . $viewall . "</a></li>\n";
 			}
 			$tweet_output = "<ul class='twitter-user-widget'>\n".$tweet_output."</ul>\n";
-			update_option('twitter_user_cache', $tweet_output);
+			update_option($cachekey, $tweet_output);
 		} else {
-			$tweet_output = get_option('twitter_user_cache');
+			$tweet_output = get_option($cachekey);
 		}
 		
 		$output = '';
@@ -174,10 +173,6 @@ class Twitter_Feed_Widget extends WidgetZero {
 		$output .= $tweet_output;
 		
 		echo $this->template('before_widget').$output.$this->template('after_widget');
-	}
-	
-	public static function options_init() {
-		add_option('twitter_user_cache', '');
 	}
 	
 	private static function json_object_to_array($json) {
@@ -202,8 +197,6 @@ class Twitter_Feed_Widget extends WidgetZero {
 	}
 }
 
-
 add_action('widgets_init', create_function('', 'return register_widget("Twitter_Feed_Widget");'));
-register_activation_hook(__FILE__, 'Twitter_Feed_Widget::options_init');
 
 ?>

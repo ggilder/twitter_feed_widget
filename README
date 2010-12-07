@@ -2,7 +2,19 @@ A WordPress widget for displaying the most recent twitter status updates for a p
 
 At the moment, requires the WordpressZero library to be loaded in your theme: https://github.com/ggilder/wordpress_zero
 
-Still need to implement tweet sorting for multi-user, and making cache option work per-instance instead of shared globally.
+To-do list:
+
+Sorting & Filtering:
+- Sort tweets in multi-user feed
+- Filter multi-user results down to the correct number of total tweets
+
+Caching:
+- Throttle API requests and use the cache if it's recent
+
+Processing & General:
+- Use Twitter API's entities instead of parsing them ourselves (http://dev.twitter.com/pages/tweet_entities)
+- Add ability to show each tweet's user
+
 
 -Gabriel Gilder
 2010-12-03
