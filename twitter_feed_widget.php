@@ -74,25 +74,66 @@ class Twitter_Feed_Widget extends WidgetZero {
 				'name'=>'viewall',
 				'label'=>'View All link text',
 				'note'=>'(Leave blank for no view all link)'
+			),
+			array(
+				'name'=>'cache_lifetime',
+				'label'=>'Refresh interval',
+				'size'=>3,
+				'default'=>1,
+				'note'=>'Measured in minutes. Values lower than 1 may trigger errors due to Twitter API rate limits.'
 			)
 		));
 	}
 	
 	function render($fields) {
+		// check if the cache is recent enough to use
+		if (time() < ($this->cache_date() + ($fields['cache_lifetime'] * 60))){
+			$tweet_output = "\n<!-- cached output from ".$this->cache_date()." -->\n";
+			$tweet_output .= get_option($this->cache_key());
+		} else {
+			$tweet_output = $this->render_tweets($fields);
+			if ($tweet_output) {
+				$this->update_cache_date();
+			} else {
+				// houston, we have a problem.
+				$tweet_output = "\n<!-- error retrieving twitter feed! displaying cached output from ".$this->cache_date()." -->\n";
+				$tweet_output .= get_option($this->cache_key());
+			}
+		}
+		
+		$output = '';
+		
+		$title = apply_filters('widget_title', $fields['title']);
+		if ($fields['linktitle']){
+			$title = "<a href='http://twitter.com/{$users[0]}'>$title</a>";
+		}
+		if ( $title ) $output .= $this->template('before_title') . $title . $this->template('after_title');
+		
+		$output .= $tweet_output;
+		
+		echo $this->template('before_widget').$output.$this->template('after_widget');
+	}
+	
+	protected function after_update($new_instance, $old_instance){
+		$this->update_cache_date(0);
+	}
+	
+	private function render_tweets($fields)
+	{
 		$users = preg_split('/[,\s]+/', $fields['username']);
 		$number = $fields['number'];
 		$viewall = $fields['viewall'];
 		$dateformat = $fields['dateformat'];
 		$responses = array();
 		$errors = array();
-		$cachekey = 'twitter_feed_cache_'.$this->id;
 		
 		foreach ($users as $user){
 			$raw_response = wp_remote_get(self::API_BASE_URL."{$user}.json?count={$number}&include_entities=1");
 			
 			if ( is_wp_error($raw_response) ) {
-				$errors[] = "<!-- Failed to update from Twitter! -->\n<!-- {$raw_response->errors['http_request_failed'][0]} -->\n";
-				break;
+				// $errors[] = "<!-- Failed to update from Twitter! -->\n<!-- {$raw_response->errors['http_request_failed'][0]} -->\n";
+				// break;
+				return false;
 			}
 			
 			if ( function_exists('json_decode') ) {
@@ -174,26 +215,36 @@ class Twitter_Feed_Widget extends WidgetZero {
 				$tweet_output .= "<li class='view-all'><a href='http://twitter.com/{$users[0]}'>" . $viewall . "</a></li>\n";
 			}
 			$tweet_output = "<ul class='twitter-user-widget'>\n".$tweet_output."</ul>\n";
-			update_option($cachekey, $tweet_output);
+			return $tweet_output;
 		} else {
-			$tweet_output = get_option($cachekey);
+			return false;
 		}
 		
-		$output = '';
-		
-		$title = apply_filters('widget_title', $fields['title']);
-		if ($fields['linktitle']){
-			$title = "<a href='http://twitter.com/{$users[0]}'>$title</a>";
+	}
+	
+	private function cache_key(){
+		if (!$this->cache_key){
+			$this->cache_key = 'twitter_feed_cache_'.$this->id;
 		}
-		if ( $title ) $output .= $this->template('before_title') . $title . $this->template('after_title');
-		
-		if ($errors) {
-			$output .= implode("\n", $errors);
+		return $this->cache_key;
+	}
+	
+	private function cache_updated_key(){
+		if (!$this->cache_updated_key){
+			$this->cache_updated_key = 'twitter_feed_cache_updated_'.$this->id;
 		}
-		
-		$output .= $tweet_output;
-		
-		echo $this->template('before_widget').$output.$this->template('after_widget');
+		return $this->cache_updated_key;
+	}
+	
+	private function cache_date()
+	{
+		return get_option($this->cache_updated_key());
+	}
+	
+	private function update_cache_date($time=false)
+	{
+		if (!$time) $time = time();
+		update_option($this->cache_updated_key(), $time);
 	}
 	
 	private static function json_object_to_array($json) {
