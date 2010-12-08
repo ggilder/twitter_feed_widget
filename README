@@ -2,5 +2,6 @@ A WordPress widget for displaying the most recent twitter status updates for a p
 
 At the moment, requires the WordpressZero library to be loaded in your theme: https://github.com/ggilder/wordpress_zero
 
+Caches API requests to prevent rate limits from making you sad. Set the refresh interval to determine how often new API requests should be made. Default is once per minute.
 
 -Gabriel Gilder

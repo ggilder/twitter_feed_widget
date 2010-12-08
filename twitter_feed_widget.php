@@ -11,7 +11,9 @@ Version: 0.3.0
 */
 
 class Twitter_Feed_Widget extends WidgetZero {
+	const DEBUG_MESSAGES = true;
 	const API_BASE_URL = 'http://api.twitter.com/1/statuses/user_timeline/';
+	const CACHE_UPDATE_TIMEOUT = 60;
 	
 	function Twitter_Feed_Widget() {
 		$widget_ops = array('classname' => 'twitter_feed_widget', 'description' => __( "Real time Twitter user following") );
@@ -87,18 +89,25 @@ class Twitter_Feed_Widget extends WidgetZero {
 	
 	function render($fields) {
 		// check if the cache is recent enough to use
-		if (time() < ($this->cache_date() + ($fields['cache_lifetime'] * 60))){
-			$tweet_output = "\n<!-- cached output from ".$this->cache_date()." -->\n";
-			$tweet_output .= get_option($this->cache_key());
+		if ($this->cache_younger_than($fields['cache_lifetime'])){
+			self::debug_msg("cached feed from ".(time() - $this->cache_date())." seconds ago");
+			$tweet_output = $this->get_cache();
+		} elseif($this->is_updating_cache()) {
+			self::debug_msg("update in progress, showing cached feed from ".(time() - $this->cache_date())." seconds ago");
+			$tweet_output = $this->get_cache();
 		} else {
+			$this->start_cache_update();
 			$tweet_output = $this->render_tweets($fields);
 			if ($tweet_output) {
-				$this->update_cache_date();
+				$update_time = $this->update_cache_date();
+				update_option($this->cache_key(), $tweet_output);
+				self::debug_msg("refreshed feed at ".$update_time);
 			} else {
 				// houston, we have a problem.
-				$tweet_output = "\n<!-- error retrieving twitter feed! displaying cached output from ".$this->cache_date()." -->\n";
-				$tweet_output .= get_option($this->cache_key());
+				self::debug_msg("error retrieving twitter feed! displaying cached output from ".$this->cache_date());
+				$tweet_output = $this->get_cache();
 			}
+			$this->finish_cache_update();
 		}
 		
 		$output = '';
@@ -118,21 +127,26 @@ class Twitter_Feed_Widget extends WidgetZero {
 		$this->update_cache_date(0);
 	}
 	
+	private static function debug_msg($msg)
+	{
+		if (self::DEBUG_MESSAGES){
+			echo "\n<!-- {$msg} -->\n";
+		}
+	}
+	
 	private function render_tweets($fields)
 	{
 		$users = preg_split('/[,\s]+/', $fields['username']);
-		$number = $fields['number'];
+		$number = (int) $fields['number'];
 		$viewall = $fields['viewall'];
 		$dateformat = $fields['dateformat'];
 		$responses = array();
-		$errors = array();
 		
 		foreach ($users as $user){
 			$raw_response = wp_remote_get(self::API_BASE_URL."{$user}.json?count={$number}&include_entities=1");
 			
 			if ( is_wp_error($raw_response) ) {
-				// $errors[] = "<!-- Failed to update from Twitter! -->\n<!-- {$raw_response->errors['http_request_failed'][0]} -->\n";
-				// break;
+				self::debug_msg("Failed to update from Twitter!\n".$raw_response->errors['http_request_failed'][0]);
 				return false;
 			}
 			
@@ -147,79 +161,85 @@ class Twitter_Feed_Widget extends WidgetZero {
 			$responses[$user] = $response;
 		}
 		
-		if (count($errors) == 0) {
-			$tweets = array();
-			foreach ($responses as $response){
-				$tweets = array_merge($tweets, $response);
-			}
-			
-			if (count($users) > 1){
-				// sort tweets if we are aggregating multiple users - otherwise they are returned sorted by the API
-				usort($tweets, function($a, $b){
-					$a_date = strtotime($a['created_at']);
-					$b_date = strtotime($b['created_at']);
-					if ($a_date == $b_date){
-						return 0;
-					}
-					// sort in descending order
-					return ($a_date > $b_date) ? -1 : 1;
-				});
-				// truncate list of tweets to the total number requested
-				$tweets = array_slice($tweets, 0, $number);
-			}
-			
-			$tweet_html = array();
-			
-			foreach ( $tweets as $tweet ) {
-				$text = self::text_with_entity_links($tweet);
-				$user = $tweet['user']['screen_name'];
-				$image_url = $tweet['user']['profile_image_url'];
-				$user_url = "http://twitter.com/$user";
-				$source_url = "$user_url/status/{$tweet['id']}";
-				$tweet_via = $tweet['source'];
-				$tweet_date = strtotime($tweet['created_at']);
-				
-				$image = '';
-				if ( $fields['images'] ) {
-					$image = "<span class='userimg'><a href='$user_url'><img src='$image_url' alt='$user' /></a></span> ";
-				}
-				$handle = '';
-				if ($fields['showuser']) {
-					$handle = sprintf('<span class="username"><a href="%s">@%s</a>:</span> ', $user_url, $user);
-				}
-				
-				$date_and_permalink = '';
-				// permalink
-				if ($fields['permalink'] == 'double_arrow') {
-					$date_and_permalink .= " <a class='permalink' href='$source_url'>&raquo;</a>";
-				}
-				// date with optional permalink
-				if ($dateformat) {
-					$date_string = date($dateformat, $tweet_date);
-					if ($fields['permalink'] == 'date'){
-						$date_string = "<a class='permalink' href='$source_url'>".$date_string."</a>";
-					}
-					$date_string = " <span class='date'>".$date_string."</span>";
-					$date_and_permalink .= $date_string;
-				}
-				
-				$via = '';
-				if ($fields['show_via']) {
-					$via = " <span class='source'>via ".$tweet_via."</span>";
-				}
-				
-				$tweet_html[] = "<li>{$image}{$handle}<span class='tweet'>{$text}</span>{$date_and_permalink}{$via}</li>";
-			}
-			$tweet_output = implode("\n", $tweet_html);
-			if ($viewall) {
-				$tweet_output .= "<li class='view-all'><a href='http://twitter.com/{$users[0]}'>" . $viewall . "</a></li>\n";
-			}
-			$tweet_output = "<ul class='twitter-user-widget'>\n".$tweet_output."</ul>\n";
-			return $tweet_output;
-		} else {
-			return false;
+		$tweets = array();
+		foreach ($responses as $response){
+			$tweets = array_merge($tweets, $response);
 		}
 		
+		if (count($users) > 1){
+			// sort tweets if we are aggregating multiple users - otherwise they are returned sorted by the API
+			usort($tweets, function($a, $b){
+				$a_date = strtotime($a['created_at']);
+				$b_date = strtotime($b['created_at']);
+				if ($a_date == $b_date){
+					return 0;
+				}
+				// sort in descending order
+				return ($a_date > $b_date) ? -1 : 1;
+			});
+			// truncate list of tweets to the total number requested
+			$tweets = array_slice($tweets, 0, $number);
+		}
+		
+		$tweet_html = array();
+		
+		foreach ( $tweets as $tweet ) {
+			$text = self::text_with_entity_links($tweet);
+			$user = $tweet['user']['screen_name'];
+			$image_url = $tweet['user']['profile_image_url'];
+			$user_url = "http://twitter.com/$user";
+			$source_url = "$user_url/status/{$tweet['id']}";
+			$tweet_via = $tweet['source'];
+			$tweet_date = strtotime($tweet['created_at']);
+			
+			$image = '';
+			if ( $fields['images'] ) {
+				$image = "<span class='userimg'><a href='$user_url'><img src='$image_url' alt='$user' /></a></span> ";
+			}
+			$handle = '';
+			if ($fields['showuser']) {
+				$handle = sprintf('<span class="username"><a href="%s">@%s</a>:</span> ', $user_url, $user);
+			}
+			
+			$date_and_permalink = '';
+			// permalink
+			if ($fields['permalink'] == 'double_arrow') {
+				$date_and_permalink .= " <a class='permalink' href='$source_url'>&raquo;</a>";
+			}
+			// date with optional permalink
+			if ($dateformat) {
+				$date_string = date($dateformat, $tweet_date);
+				if ($fields['permalink'] == 'date'){
+					$date_string = "<a class='permalink' href='$source_url'>".$date_string."</a>";
+				}
+				$date_string = " <span class='date'>".$date_string."</span>";
+				$date_and_permalink .= $date_string;
+			}
+			
+			$via = '';
+			if ($fields['show_via']) {
+				$via = " <span class='source'>via ".$tweet_via."</span>";
+			}
+			
+			$tweet_html[] = "<li>{$image}{$handle}<span class='tweet'>{$text}</span>{$date_and_permalink}{$via}</li>";
+		}
+		$tweet_output = implode("\n", $tweet_html);
+		if ($viewall) {
+			$tweet_output .= "<li class='view-all'><a href='http://twitter.com/{$users[0]}'>" . $viewall . "</a></li>\n";
+		}
+		$tweet_output = "<ul class='twitter-user-widget'>\n".$tweet_output."</ul>\n";
+		return $tweet_output;
+	}
+	
+	private function get_cache()
+	{
+		return get_option($this->cache_key());
+	}
+	
+	private function cache_younger_than($lifetime)
+	{
+		$lifetime = (float) $lifetime;
+		return (time() < ($this->cache_date() + ($lifetime * 60)));
 	}
 	
 	private function cache_key(){
@@ -236,6 +256,13 @@ class Twitter_Feed_Widget extends WidgetZero {
 		return $this->cache_updated_key;
 	}
 	
+	private function cache_worker_key(){
+		if (!$this->cache_worker_key){
+			$this->cache_worker_key = 'twitter_feed_cache_worker_'.$this->id;
+		}
+		return $this->cache_worker_key;
+	}
+	
 	private function cache_date()
 	{
 		return get_option($this->cache_updated_key());
@@ -243,8 +270,23 @@ class Twitter_Feed_Widget extends WidgetZero {
 	
 	private function update_cache_date($time=false)
 	{
-		if (!$time) $time = time();
+		if ($time === false || $time === null || $time === '') $time = time();
 		update_option($this->cache_updated_key(), $time);
+		return $time;
+	}
+	
+	private function start_cache_update()
+	{
+		update_option($this->cache_worker_key(), time());
+	}
+	
+	private function finish_cache_update()
+	{
+		update_option($this->cache_worker_key(), 0);
+	}
+	
+	private function is_updating_cache(){
+		return ((time() - get_option($this->cache_worker_key())) < self::CACHE_UPDATE_TIMEOUT);
 	}
 	
 	private static function json_object_to_array($json) {
