@@ -242,26 +242,28 @@ class Twitter_Feed_Widget extends WidgetZero {
 		return (time() < ($this->cache_date() + ($lifetime * 60)));
 	}
 	
+	/** option key accessors **/
 	private function cache_key(){
 		if (!$this->cache_key){
-			$this->cache_key = 'twitter_feed_cache_'.$this->id;
+			$this->cache_key = $this->id.'_cache';
 		}
 		return $this->cache_key;
 	}
 	
 	private function cache_updated_key(){
 		if (!$this->cache_updated_key){
-			$this->cache_updated_key = 'twitter_feed_cache_updated_'.$this->id;
+			$this->cache_updated_key = $this->id.'_cache_updated';
 		}
 		return $this->cache_updated_key;
 	}
 	
 	private function cache_worker_key(){
 		if (!$this->cache_worker_key){
-			$this->cache_worker_key = 'twitter_feed_cache_worker_'.$this->id;
+			$this->cache_worker_key = $this->id.'_cache_worker';
 		}
 		return $this->cache_worker_key;
 	}
+	/** end option key accessors **/
 	
 	private function cache_date()
 	{
