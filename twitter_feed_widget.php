@@ -227,7 +227,7 @@ class Twitter_Feed_Widget extends WidgetZero {
 		if ($viewall) {
 			$tweet_output .= "<li class='view-all'><a href='http://twitter.com/{$users[0]}'>" . $viewall . "</a></li>\n";
 		}
-		$tweet_output = "<ul class='twitter-user-widget'>\n".$tweet_output."</ul>\n";
+		$tweet_output = "<ul>\n".$tweet_output."</ul>\n";
 		return $tweet_output;
 	}
 	
