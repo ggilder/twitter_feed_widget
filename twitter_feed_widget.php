@@ -314,15 +314,24 @@ class Twitter_Feed_Widget extends WidgetZero {
 				$entities[] = array(
 					'start'=>$entity['indices'][0],
 					'end'=>$entity['indices'][1],
-					'link'=>self::entity_link($entity_type, $entity)
+					'content'=>self::entity_link($entity_type, $entity)
 				);
 				$entities_sort[] = $entity['indices'][0];
 			}
 		}
 		array_multisort($entities_sort, SORT_DESC, $entities);
+		$nodes = array();
+		$working = $text;
 		foreach ($entities as $entity){
-			$text = substr($text, 0, $entity['start']) . $entity['link'] . substr($text, $entity['end']);
+			$text_node = self::h_encode(mb_substr($working, $entity['end']));
+			$entity_node = $entity['content'];
+			array_unshift($nodes, $entity_node, $text_node);
+			$working = mb_substr($working, 0, $entity['start']);
 		}
+		if (mb_strlen($working) > 0){
+			array_unshift($nodes, self::h_encode($working));
+		}
+		$text = implode('', $nodes);
 		return $text;
 	}
 	
@@ -330,14 +339,24 @@ class Twitter_Feed_Widget extends WidgetZero {
 	{
 		switch ($type){
 			case 'hashtags':
-				return sprintf('<a class="hashtag" href="http://twitter.com/search?q=%%23%1$s">#%1$s</a>', $entity['text']);
+				return self::interpolate_entity('<a class="hashtag" href="http://twitter.com/search?q=%%23%1$s">#%2$s</a>', $entity['text']);
 			case 'user_mentions':
-				return sprintf('<a class="user_mention" href="http://twitter.com/%1$s">@%1$s</a>', $entity['screen_name']);
+				return self::interpolate_entity('<a class="user_mention" href="http://twitter.com/%1$s">@%2$s</a>', $entity['screen_name']);
 			case 'urls':
-				return sprintf('<a href="%1$s">%1$s</a>', $entity['url']);
+				return self::interpolate_entity('<a href="%1$s">%2$s</a>', $entity['url']);
 			default:
 				throw new Exception("Encountered unexpected entity type {$type} in tweet!");
 		}
+	}
+	
+	private static function interpolate_entity($template, $entity)
+	{
+		return sprintf($template, urlencode($entity), self::h_encode($entity));
+	}
+	
+	private static function h_encode($str)
+	{
+		return htmlentities($str, ENT_COMPAT, 'UTF-8');
 	}
 }
 
