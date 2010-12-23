@@ -343,7 +343,7 @@ class Twitter_Feed_Widget extends WidgetZero {
 			case 'user_mentions':
 				return self::interpolate_entity('<a class="user_mention" href="http://twitter.com/%1$s">@%2$s</a>', $entity['screen_name']);
 			case 'urls':
-				return self::interpolate_entity('<a href="%1$s">%2$s</a>', $entity['url']);
+				return sprintf('<a href="%1$s">%2$s</a>', $entity['url'], self::h_encode($entity['url']));
 			default:
 				throw new Exception("Encountered unexpected entity type {$type} in tweet!");
 		}
