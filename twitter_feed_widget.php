@@ -11,7 +11,7 @@ Version: 0.3.0
 */
 
 class Twitter_Feed_Widget extends WidgetZero {
-	const DEBUG_MESSAGES = true;
+	const DEBUG_MESSAGES = false;
 	const API_BASE_URL = 'http://api.twitter.com/1/statuses/user_timeline/';
 	const CACHE_UPDATE_TIMEOUT = 60;
 	
@@ -88,6 +88,7 @@ class Twitter_Feed_Widget extends WidgetZero {
 	}
 	
 	function render($fields) {
+		self::debug_msg('twitter user feed widget render');
 		// check if the cache is recent enough to use
 		if ($this->cache_younger_than($fields['cache_lifetime'])){
 			self::debug_msg("cached feed from ".(time() - $this->cache_date())." seconds ago");
@@ -110,17 +111,25 @@ class Twitter_Feed_Widget extends WidgetZero {
 			$this->finish_cache_update();
 		}
 		
+		$this->parseUsers($fields);
+		
 		$output = '';
 		
 		$title = apply_filters('widget_title', $fields['title']);
 		if ($fields['linktitle']){
-			$title = "<a href='http://twitter.com/{$users[0]}'>$title</a>";
+			$title = "<a href='http://twitter.com/{$this->users[0]}'>$title</a>";
 		}
 		if ( $title ) $output .= $this->template('before_title') . $title . $this->template('after_title');
 		
 		$output .= $tweet_output;
 		
 		echo $this->template('before_widget').$output.$this->template('after_widget');
+	}
+	
+	private function parseUsers($fields){
+		if (isset($this->users)) return true;
+		$this->users = array_filter(preg_split('/[,\s]+/', $fields['username']));
+		return true;
 	}
 	
 	protected function after_update($new_instance, $old_instance){
@@ -136,14 +145,15 @@ class Twitter_Feed_Widget extends WidgetZero {
 	
 	private function render_tweets($fields)
 	{
-		$users = preg_split('/[,\s]+/', $fields['username']);
+		$this->parseUsers($fields);
+		$users = $this->users;
 		$number = (int) $fields['number'];
 		$viewall = $fields['viewall'];
 		$dateformat = $fields['dateformat'];
 		$responses = array();
 		
 		foreach ($users as $user){
-			$raw_response = wp_remote_get(self::API_BASE_URL."{$user}.json?count={$number}&include_entities=1");
+			$raw_response = wp_remote_get(self::API_BASE_URL."{$user}.json?count={$number}&include_entities=1&include_rts=1");
 			
 			if ( is_wp_error($raw_response) ) {
 				self::debug_msg("Failed to update from Twitter!\n".$raw_response->errors['http_request_failed'][0]);
@@ -162,21 +172,14 @@ class Twitter_Feed_Widget extends WidgetZero {
 		}
 		
 		$tweets = array();
-		foreach ($responses as $response){
+		foreach ($responses as $user => $response){
+			self::debug_msg('adding '.count($response).' tweets from '.$user);
 			$tweets = array_merge($tweets, $response);
 		}
 		
 		if (count($users) > 1){
 			// sort tweets if we are aggregating multiple users - otherwise they are returned sorted by the API
-			usort($tweets, function($a, $b){
-				$a_date = strtotime($a['created_at']);
-				$b_date = strtotime($b['created_at']);
-				if ($a_date == $b_date){
-					return 0;
-				}
-				// sort in descending order
-				return ($a_date > $b_date) ? -1 : 1;
-			});
+			usort($tweets, 'Twitter_Feed_Widget::sort_tweets');
 			// truncate list of tweets to the total number requested
 			$tweets = array_slice($tweets, 0, $number);
 		}
@@ -188,9 +191,11 @@ class Twitter_Feed_Widget extends WidgetZero {
 			$user = $tweet['user']['screen_name'];
 			$image_url = $tweet['user']['profile_image_url'];
 			$user_url = "http://twitter.com/$user";
-			$source_url = "$user_url/status/{$tweet['id']}";
+			$source_url = "$user_url/status/{$tweet['id_str']}";
 			$tweet_via = $tweet['source'];
 			$tweet_date = strtotime($tweet['created_at']);
+			
+			self::debug_msg("tweet id ".$tweet['id_str']);
 			
 			$image = '';
 			if ( $fields['images'] ) {
@@ -229,6 +234,16 @@ class Twitter_Feed_Widget extends WidgetZero {
 		}
 		$tweet_output = "<ul>\n".$tweet_output."</ul>\n";
 		return $tweet_output;
+	}
+	
+	public static function sort_tweets($a, $b){
+		$a_date = strtotime($a['created_at']);
+		$b_date = strtotime($b['created_at']);
+		if ($a_date == $b_date){
+			return 0;
+		}
+		// sort in descending order
+		return ($a_date > $b_date) ? -1 : 1;
 	}
 	
 	private function get_cache()
