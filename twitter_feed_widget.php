@@ -78,17 +78,26 @@ class Twitter_Feed_Widget extends WidgetZero {
 				'note'=>'(Leave blank for no view all link)'
 			),
 			array(
+				'name'=>'links_new_window',
+				'label'=>'Open links in a new window?',
+				'type'=>'toggle',
+			),
+			array(
 				'name'=>'cache_lifetime',
 				'label'=>'Refresh interval',
 				'size'=>3,
 				'default'=>1,
 				'note'=>'Measured in minutes. Values lower than 1 may trigger errors due to Twitter API rate limits.'
-			)
+			),
 		));
 	}
 	
 	function render($fields) {
 		self::debug_msg('twitter user feed widget render');
+		
+		// set some options for this instance
+		$this->target = $fields['links_new_window'] ? ' target="blank"' : '';
+		
 		// check if the cache is recent enough to use
 		if ($this->cache_younger_than($fields['cache_lifetime'])){
 			self::debug_msg("cached feed from ".(time() - $this->cache_date())." seconds ago");
@@ -117,7 +126,7 @@ class Twitter_Feed_Widget extends WidgetZero {
 		
 		$title = apply_filters('widget_title', $fields['title']);
 		if ($fields['linktitle']){
-			$title = "<a href='http://twitter.com/{$this->users[0]}'>$title</a>";
+			$title = "<a href='http://twitter.com/{$this->users[0]}'{$this->target}>{$title}</a>";
 		}
 		if ( $title ) $output .= $this->template('before_title') . $title . $this->template('after_title');
 		
@@ -187,7 +196,7 @@ class Twitter_Feed_Widget extends WidgetZero {
 		$tweet_html = array();
 		
 		foreach ( $tweets as $tweet ) {
-			$text = self::text_with_entity_links($tweet);
+			$text = $this->text_with_entity_links($tweet);
 			$user = $tweet['user']['screen_name'];
 			$image_url = $tweet['user']['profile_image_url'];
 			$user_url = "http://twitter.com/$user";
@@ -199,23 +208,23 @@ class Twitter_Feed_Widget extends WidgetZero {
 			
 			$image = '';
 			if ( $fields['images'] ) {
-				$image = "<span class='userimg'><a href='$user_url'><img src='$image_url' alt='$user' /></a></span> ";
+				$image = "<span class='userimg'><a href='{$user_url}'{$this->target}><img src='{$image_url}' alt='{$user}' /></a></span> ";
 			}
 			$handle = '';
 			if ($fields['showuser']) {
-				$handle = sprintf('<span class="username"><a href="%s">@%s</a>:</span> ', $user_url, $user);
+				$handle = sprintf('<span class="username"><a href="%1$s"%3$s>@%2$s</a>:</span> ', $user_url, $user, $this->target);
 			}
 			
 			$date_and_permalink = '';
 			// permalink
 			if ($fields['permalink'] == 'double_arrow') {
-				$date_and_permalink .= " <a class='permalink' href='$source_url'>&raquo;</a>";
+				$date_and_permalink .= " <a class='permalink' href='{$source_url}'{$this->target}>&raquo;</a>";
 			}
 			// date with optional permalink
 			if ($dateformat) {
 				$date_string = date($dateformat, $tweet_date);
 				if ($fields['permalink'] == 'date'){
-					$date_string = "<a class='permalink' href='$source_url'>".$date_string."</a>";
+					$date_string = "<a class='permalink' href='{$source_url}'{$this->target}>{$date_string}</a>";
 				}
 				$date_string = " <span class='date'>".$date_string."</span>";
 				$date_and_permalink .= $date_string;
@@ -230,7 +239,7 @@ class Twitter_Feed_Widget extends WidgetZero {
 		}
 		$tweet_output = implode("\n", $tweet_html);
 		if ($viewall) {
-			$tweet_output .= "<li class='view-all'><a href='http://twitter.com/{$users[0]}'>" . $viewall . "</a></li>\n";
+			$tweet_output .= "<li class='view-all'><a href='http://twitter.com/{$users[0]}'{$this->target}>{$viewall}</a></li>\n";
 		}
 		$tweet_output = "<ul>\n".$tweet_output."</ul>\n";
 		return $tweet_output;
@@ -319,7 +328,7 @@ class Twitter_Feed_Widget extends WidgetZero {
 		}
 	}
 	
-	private static function text_with_entity_links($tweet)
+	private function text_with_entity_links($tweet)
 	{
 		$text = $tweet['text'];
 		$entities = array();
@@ -329,7 +338,7 @@ class Twitter_Feed_Widget extends WidgetZero {
 				$entities[] = array(
 					'start'=>$entity['indices'][0],
 					'end'=>$entity['indices'][1],
-					'content'=>self::entity_link($entity_type, $entity)
+					'content'=>$this->entity_link($entity_type, $entity)
 				);
 				$entities_sort[] = $entity['indices'][0];
 			}
@@ -350,23 +359,23 @@ class Twitter_Feed_Widget extends WidgetZero {
 		return $text;
 	}
 	
-	private static function entity_link($type, $entity)
+	private function entity_link($type, $entity)
 	{
 		switch ($type){
 			case 'hashtags':
-				return self::interpolate_entity('<a class="hashtag" href="http://twitter.com/search?q=%%23%1$s">#%2$s</a>', $entity['text']);
+				return $this->interpolate_entity('<a class="hashtag" href="http://twitter.com/search?q=%%23%1$s"%3$s>#%2$s</a>', $entity['text']);
 			case 'user_mentions':
-				return self::interpolate_entity('<a class="user_mention" href="http://twitter.com/%1$s">@%2$s</a>', $entity['screen_name']);
+				return $this->interpolate_entity('<a class="user_mention" href="http://twitter.com/%1$s"%3$s>@%2$s</a>', $entity['screen_name']);
 			case 'urls':
-				return sprintf('<a href="%1$s">%2$s</a>', $entity['url'], self::h_encode($entity['url']));
+				return sprintf('<a href="%1$s"%3$s>%2$s</a>', $entity['url'], self::h_encode($entity['url']), $this->target);
 			default:
 				throw new Exception("Encountered unexpected entity type {$type} in tweet!");
 		}
 	}
 	
-	private static function interpolate_entity($template, $entity)
+	private function interpolate_entity($template, $entity)
 	{
-		return sprintf($template, urlencode($entity), self::h_encode($entity));
+		return sprintf($template, urlencode($entity), self::h_encode($entity), $this->target);
 	}
 	
 	private static function h_encode($str)
